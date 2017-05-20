@@ -162,17 +162,17 @@ namespace CacheCoherenceSimulator
                     {
                         case Message.ReadMiss:
                             dirs[addr % 8].Add(sender);
+                            Log("sharers add P" + sender);
                             break;
                         case Message.WriteMiss:
-                            dirs[addr % 8].DeleteAll();
-                            dirs[addr % 8].Add(sender);
-                            break;
                         case Message.Invalid:
                             dirs[addr % 8].DeleteAll();
                             dirs[addr % 8].Add(sender);
+                            Log("sharers become P" + sender + " only");
                             break;
                         case Message.DeleteDir:
                             dirs[addr % 8].Delete(sender);
+                            Log("sharers remove P" + sender);
                             break;
                         default:
                             throw new ArgumentOutOfRangeException(nameof(m), m, null);
