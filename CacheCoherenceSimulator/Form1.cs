@@ -51,7 +51,7 @@ namespace CacheCoherenceSimulator
             return Color.White;
         }
 
-        private void DrawProc(Processor p, DataGridView v)
+        private void DrawProc(Processor p, DataGridView v, DataGridView v2)
         {
             v.Rows.Clear();
             for (int i = 0; i < 4; i++)
@@ -59,14 +59,19 @@ namespace CacheCoherenceSimulator
                 v.Rows.Add(i, StateToStr(p.states[i]), p.states[i] > 0 ? p.addrs[i].ToString() : "");
                 v.Rows[i].Cells[1].Style.BackColor = StateToColor(p.states[i]);
             }
+            v2.Rows.Clear();
+            for (int i = 0; i < 8; i++)
+            {
+                v2.Rows.Add(p.no * 8 + i, p.dirs[i].ToString());
+            }
         }
 
         private void Draw()
         {
-            DrawProc(proc[0], dataGridView1);
-            DrawProc(proc[1], dataGridView4);
-            DrawProc(proc[2], dataGridView6);
-            DrawProc(proc[3], dataGridView8);
+            DrawProc(proc[0], dataGridView1, dataGridView2);
+            DrawProc(proc[1], dataGridView4, dataGridView3);
+            DrawProc(proc[2], dataGridView6, dataGridView5);
+            DrawProc(proc[3], dataGridView8, dataGridView7);
         }
 
         private void Form1_Load(object sender, EventArgs e)
@@ -91,7 +96,7 @@ namespace CacheCoherenceSimulator
             proc = new Processor[4];
             for (int i = 0; i < 4; i++)
             {
-                proc[i] = new Processor((Method)comboBox3.SelectedIndex, (Assoc)comboBox1.SelectedIndex, proc, textBox1);
+                proc[i] = new Processor(comboBox3.SelectedIndex == 1, (Assoc)comboBox1.SelectedIndex, proc, textBox1, i);
             }
             Draw();
             textBox1.Text = "历史记录:" + Environment.NewLine;

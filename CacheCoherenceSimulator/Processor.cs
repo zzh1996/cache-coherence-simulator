@@ -14,12 +14,6 @@ namespace CacheCoherenceSimulator
         Own
     }
 
-    enum Method
-    {
-        Snoop,
-        Directory
-    }
-
     enum Assoc
     {
         Direct,
@@ -37,28 +31,80 @@ namespace CacheCoherenceSimulator
     {
         ReadMiss,
         WriteMiss,
-        Invalid
+        Invalid,
+        DeleteDir
+    }
+
+    class Dir
+    {
+        private bool[] cpus;
+        public Dir()
+        {
+            cpus = new bool[4];
+        }
+
+        public void Add(int i)
+        {
+            cpus[i] = true;
+        }
+
+        public void Delete(int i)
+        {
+            cpus[i] = false;
+        }
+
+        public void DeleteAll()
+        {
+            for (int i = 0; i < 4; i++)
+                cpus[i] = false;
+        }
+
+        public override string ToString()
+        {
+            string s = "";
+            for (int i = 0; i < 4; i++)
+            {
+                if (cpus[i])
+                    s += (char)('A' + i);
+                else
+                    s += ' ';
+            }
+            return s;
+        }
     }
 
     class Processor
     {
         public State[] states;
         public int[] addrs;
-        private Method method;
+        private bool directory;
         private Assoc assoc;
         private Processor[] procs;
         private Random rnd;
         private TextBox log;
+        public Dir[] dirs;
+        public int no;
 
-        public Processor(Method method, Assoc assoc, Processor[] procs, TextBox log)
+        public Processor(bool directory, Assoc assoc, Processor[] procs, TextBox log, int no)
         {
             states = new State[4];
             addrs = new int[4];
-            this.method = method;
+            this.directory = directory;
             this.assoc = assoc;
             this.procs = procs;
             rnd = new Random();
             this.log = log;
+            dirs = new Dir[8];
+            for (int i = 0; i < 8; i++)
+            {
+                dirs[i] = new Dir();
+            }
+            this.no = no;
+        }
+
+        private void Log(string s)
+        {
+            log.AppendText("P" + no + ": " + s + Environment.NewLine);
         }
 
         private int Find(int addr)
@@ -92,17 +138,50 @@ namespace CacheCoherenceSimulator
 
         private void SendMessage(Message m, int addr)
         {
-            log.AppendText("Message: " + m.ToString() + " " + addr.ToString() + Environment.NewLine);
+            Log("Message: " + m.ToString() + " " + addr.ToString());
             for (int i = 0; i < 4; i++)
             {
                 if (!ReferenceEquals(procs[i], this))
                 {
-                    procs[i].ReceiveMessage(m, addr);
+                    procs[i].ReceiveMessage(m, addr, no);
+                }
+                else
+                {
+                    ModifyDir(m, addr, no);
                 }
             }
         }
 
-        private void ReceiveMessage(Message m, int addr)
+        private void ModifyDir(Message m, int addr, int sender)
+        {
+            if (directory)
+            {
+                if (addr / 8 == no) //I'm the owner
+                {
+                    switch (m)
+                    {
+                        case Message.ReadMiss:
+                            dirs[addr % 8].Add(sender);
+                            break;
+                        case Message.WriteMiss:
+                            dirs[addr % 8].DeleteAll();
+                            dirs[addr % 8].Add(sender);
+                            break;
+                        case Message.Invalid:
+                            dirs[addr % 8].DeleteAll();
+                            dirs[addr % 8].Add(sender);
+                            break;
+                        case Message.DeleteDir:
+                            dirs[addr % 8].Delete(sender);
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException(nameof(m), m, null);
+                    }
+                }
+            }
+        }
+
+        private void ReceiveMessage(Message m, int addr, int sender)
         {
             int p = Find(addr);
             if (addrs[p] == addr && states[p] != State.Invalid)
@@ -131,71 +210,69 @@ namespace CacheCoherenceSimulator
                         throw new ArgumentOutOfRangeException();
                 }
             }
+            ModifyDir(m, addr, sender);
         }
 
         private void WriteBack(int addr)
         {
-            log.AppendText("Write back to " + addr + Environment.NewLine);
+            Log("Write back to " + addr);
         }
 
         public void Run(int addr, Oper rw)
         {
             int p = Find(addr);
             bool hit = addrs[p] == addr && states[p] != State.Invalid;
-            log.AppendText(rw.ToString() + " " + (hit ? "hit" : "miss") + " " + addr + Environment.NewLine);
-            switch (method)
+            Log(rw.ToString() + " " + (hit ? "hit" : "miss") + " " + addr);
+            switch (states[p])
             {
-                case Method.Snoop:
-                    switch (states[p])
+                case State.Invalid:
+                    if (rw == Oper.Read)
                     {
-                        case State.Invalid:
-                            if (rw == Oper.Read)
-                            {
-                                SendMessage(Message.ReadMiss, addr);
-                                states[p] = State.Shared;
-                            }
-                            else
-                            {
-                                SendMessage(Message.WriteMiss, addr);
-                                states[p] = State.Own;
-                            }
-                            break;
-                        case State.Shared:
-                            if (rw == Oper.Read)
-                            {
-                                if (!hit)
-                                    SendMessage(Message.ReadMiss, addr);
-                            }
-                            else
-                            {
-                                if (hit)
-                                    SendMessage(Message.Invalid, addr);
-                                else
-                                    SendMessage(Message.WriteMiss, addr);
-                                states[p] = State.Own;
-                            }
-                            break;
-                        case State.Own:
-                            if (!hit)
-                            {
-                                WriteBack(addrs[p]);
-                                if (rw == Oper.Read)
-                                    SendMessage(Message.ReadMiss, addr);
-                                else
-                                    SendMessage(Message.WriteMiss, addr);
-                            }
-                            break;
-                        default:
-                            throw new ArgumentOutOfRangeException();
+                        SendMessage(Message.ReadMiss, addr);
+                        states[p] = State.Shared;
+                    }
+                    else
+                    {
+                        SendMessage(Message.WriteMiss, addr);
+                        states[p] = State.Own;
                     }
                     break;
-                case Method.Directory:
+                case State.Shared:
+                    if (rw == Oper.Read)
+                    {
+                        if (!hit)
+                        {
+                            if (directory) SendMessage(Message.DeleteDir, addrs[p]);
+                            SendMessage(Message.ReadMiss, addr);
+                        }
+                    }
+                    else
+                    {
+                        if (hit)
+                            SendMessage(Message.Invalid, addr);
+                        else
+                            SendMessage(Message.WriteMiss, addr);
+                        states[p] = State.Own;
+                    }
+                    break;
+                case State.Own:
+                    if (!hit)
+                    {
+                        WriteBack(addrs[p]);
+                        if (directory) SendMessage(Message.DeleteDir, addrs[p]);
+                        if (rw == Oper.Read)
+                        {
+                            SendMessage(Message.ReadMiss, addr);
+                            states[p] = State.Shared;
+                        }
+                        else
+                            SendMessage(Message.WriteMiss, addr);
+                    }
                     break;
                 default:
                     throw new ArgumentOutOfRangeException();
             }
             addrs[p] = addr;
         }
-
     }
 }
